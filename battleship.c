@@ -136,7 +136,7 @@ int checkWinner(Player *player) {
     return player->hits == 14;
 }
 
-void aiTurn(SharedState *state, int ai_id) {
+void aiTurn(SharedState *state, int ai_id) { // AI Targeting is here.
     Player *ai = &state->players[ai_id];
     Player *opponent = &state->players[1 - ai_id];
     int row, col;
@@ -179,7 +179,7 @@ void aiTurn(SharedState *state, int ai_id) {
     }
 }
 
-void gameLoop(SharedState *state) {
+void gameLoop(SharedState *state) { // Game Loop
     while (!state->game_over) {
         if (state->current_turn == 0) {
             aiTurn(state, 0);
@@ -208,7 +208,7 @@ void gameLoop(SharedState *state) {
     printf("AI %d wins!\n", state->winner + 1);
 }
 
-int main() {
+int main() { // Need to add the menu.
     srand(getPreciseSeed());
 
     int shm_id = shmget(IPC_PRIVATE, sizeof(SharedState), IPC_CREAT | 0666);
