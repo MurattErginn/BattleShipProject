@@ -1,28 +1,31 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <sys/ipc.h>
-#include <sys/shm.h>
 #include <time.h>
 #include <sys/wait.h>
-#include <sys/time.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
 
-#define GRID_SIZE 4
-#define SHIP_COUNT 4
+#define GRID_SIZE 8
+#define SHIP_COUNT 5
 #define PLAYER_COUNT 2
 
-// The structure representing the player 
+int ship_sizes[SHIP_COUNT] = {4, 3, 3, 2, 2};
+
 typedef struct {
-    int grid[GRID_SIZE][GRID_SIZE];
-    int hits;
-    int attacked[GRID_SIZE][GRID_SIZE];
+    int grid[GRID_SIZE][GRID_SIZE];      // Actual grid with ships
+    int attacked[GRID_SIZE][GRID_SIZE];  // Track attacks: -1 = Miss, 2 = Hit
+    int hits;                            // Total hits
 } Player;
 
 typedef struct {
     Player players[PLAYER_COUNT];
-    int game_over;    // Shared flag for checking if the game is over
-    int winner;       // To store the winner (0 for Player 1, 1 for Player 2)
-    int current_turn; // To track whose turn it is (0 for Player 1, 1 for Player 2)
+    int current_turn;
+    int game_over;
+    int winner;
+    int ai_last_hit_row[PLAYER_COUNT];
+    int ai_last_hit_col[PLAYER_COUNT];
+    int ai_targeting[PLAYER_COUNT];
 } SharedState;
 
 unsigned int getPreciseSeed() {
@@ -34,124 +37,196 @@ unsigned int getPreciseSeed() {
 void initializeGrid(int grid[GRID_SIZE][GRID_SIZE], int attacked[GRID_SIZE][GRID_SIZE]) {
     for (int i = 0; i < GRID_SIZE; i++) {
         for (int j = 0; j < GRID_SIZE; j++) {
-            grid[i][j] = 0;        // Zero for blank spaces.
-            attacked[i][j] = 0;    // Zero for un-attacked, one for attacked.
+            grid[i][j] = 0;
+            attacked[i][j] = 0;
         }
     }
 }
 
-void placeShips(int grid[GRID_SIZE][GRID_SIZE]) {
-    int count = 0;
-    while (count < SHIP_COUNT) {
+int canPlaceShip(int grid[GRID_SIZE][GRID_SIZE], int row, int col, int size, int horizontal) {
+    for (int i = 0; i < size; i++) {
+        int r = row + (horizontal ? 0 : i);
+        int c = col + (horizontal ? i : 0);
+
+        if (r < 0 || r >= GRID_SIZE || c < 0 || c >= GRID_SIZE || grid[r][c] != 0) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+void placeShip(int grid[GRID_SIZE][GRID_SIZE], int size) {
+    int placed = 0;
+    while (!placed) {
         int row = rand() % GRID_SIZE;
-        int column = rand() % GRID_SIZE;
-        if (grid[row][column] == 0) {
-            grid[row][column] = 1; // 1 for ships
-            count++;
+        int col = rand() % GRID_SIZE;
+        int horizontal = rand() % 2;
+
+        if (canPlaceShip(grid, row, col, size, horizontal)) {
+            for (int i = 0; i < size; i++) {
+                grid[row + (horizontal ? 0 : i)][col + (horizontal ? i : 0)] = 1;
+            }
+            placed = 1;
         }
     }
 }
 
-int checkHit(Player *attacker, Player *defender, int row, int column) {
-    if (defender->grid[row][column] == 1) { // Check for ship
-        defender->grid[row][column] = 0;    // Mark the hit
-        attacker->hits++;                   // Increment the hit count for attacker
-        return 1;                           // Hit
+void automaticPlacement(int grid[GRID_SIZE][GRID_SIZE]) {
+    for (int i = 0; i < SHIP_COUNT; i++) {
+        placeShip(grid, ship_sizes[i]);
+    }
+}
+
+void displayGrid(int grid[GRID_SIZE][GRID_SIZE], const char *title) {
+    printf("\n%s:\n", title);
+    for (int i = 0; i < GRID_SIZE; i++) {
+        for (int j = 0; j < GRID_SIZE; j++) {
+            if (grid[i][j] == -1) {
+                printf(" O ");  // Miss
+            } else if (grid[i][j] == 2) {
+                printf(" X ");  // Hit
+            } else {
+                printf(" . ");  // Unattacked
+            }
+        }
+        printf("\n");
+    }
+}
+
+void displayJudgeView(Player *p1, Player *p2) {
+    printf("\nJudge's View:\n");
+    printf("Player 1 | Player 2\n");
+    for (int i = 0; i < GRID_SIZE; i++) {
+        for (int j = 0; j < GRID_SIZE; j++) {
+            if (p1->attacked[i][j] == 2) {
+                printf(" X ");  // Hit
+            } else if (p1->attacked[i][j] == -1) {
+                printf(" O ");  // Miss
+            } else {
+                printf(" %c ", p1->grid[i][j] == 1 ? 'S' : '.');  // Ship or Empty
+            }
+        }
+        printf("   ");
+        for (int j = 0; j < GRID_SIZE; j++) {
+            if (p2->attacked[i][j] == 2) {
+                printf(" X ");  // Hit
+            } else if (p2->attacked[i][j] == -1) {
+                printf(" O ");  // Miss
+            } else {
+                printf(" %c ", p2->grid[i][j] == 1 ? 'S' : '.');  // Ship or Empty
+            }
+        }
+        printf("\n");
+    }
+}
+
+int checkHit(Player *attacker, Player *defender, int row, int col) {
+    if (defender->grid[row][col] == 1) {
+        defender->grid[row][col] = 0;
+        attacker->attacked[row][col] = 2;
+        attacker->hits++;
+        return 1;
     } else {
-        return 0;                           // Miss
+        attacker->attacked[row][col] = -1;
+        return 0;
     }
 }
 
 int checkWinner(Player *player) {
-    return player->hits == SHIP_COUNT;
+    return player->hits == 14;
 }
 
-void takeTurn(Player *attacker, Player *defender, int player_number) {
-    int row, column;
-    do {
-        row = rand() % GRID_SIZE;
-        column = rand() % GRID_SIZE;
-    } while (attacker->attacked[row][column]); // Keep picking until an un-attacked spot is found
+void aiTurn(SharedState *state, int ai_id) {
+    Player *ai = &state->players[ai_id];
+    Player *opponent = &state->players[1 - ai_id];
+    int row, col;
 
-    attacker->attacked[row][column] = 1; // Mark the spot as attacked
+    if (state->ai_targeting[ai_id]) {
+        int directions[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+        for (int i = 0; i < 4; i++) {
+            row = state->ai_last_hit_row[ai_id] + directions[i][0];
+            col = state->ai_last_hit_col[ai_id] + directions[i][1];
 
-    printf("Player %d attacking coordinates: (%d, %d)\n", player_number, row, column);
-
-    if (checkHit(attacker, defender, row, column)) {
-        printf("Player %d: Hit!!\n", player_number);
-    } else {
-        printf("Player %d: Miss!!\n", player_number);
+            if (row >= 0 && row < GRID_SIZE && col >= 0 && col < GRID_SIZE &&
+                ai->attacked[row][col] == 0) {
+                printf("AI %d targets: (%d, %d)\n", ai_id + 1, row, col);
+                if (checkHit(ai, opponent, row, col)) {
+                    printf("AI %d: Hit!\n", ai_id + 1);
+                    state->ai_last_hit_row[ai_id] = row;
+                    state->ai_last_hit_col[ai_id] = col;
+                } else {
+                    printf("AI %d: Miss.\n", ai_id + 1);
+                }
+                return;
+            }
+        }
+        state->ai_targeting[ai_id] = 0;
     }
 
-    printf("------------------------------------------------------------\n");
+    do {
+        row = rand() % GRID_SIZE;
+        col = rand() % GRID_SIZE;
+    } while (ai->attacked[row][col] != 0);
+
+    printf("AI %d hunts: (%d, %d)\n", ai_id + 1, row, col);
+    if (checkHit(ai, opponent, row, col)) {
+        printf("AI %d: Hit!\n", ai_id + 1);
+        state->ai_last_hit_row[ai_id] = row;
+        state->ai_last_hit_col[ai_id] = col;
+        state->ai_targeting[ai_id] = 1;
+    } else {
+        printf("AI %d: Miss.\n", ai_id + 1);
+    }
+}
+
+void gameLoop(SharedState *state) {
+    while (!state->game_over) {
+        if (state->current_turn == 0) {
+            aiTurn(state, 0);
+            displayGrid(state->players[0].attacked, "AI 1's View");
+            displayJudgeView(&state->players[0], &state->players[1]);
+            if (checkWinner(&state->players[0])) {
+                state->game_over = 1;
+                state->winner = 0;
+            } else {
+                state->current_turn = 1;
+            }
+        } else {
+            aiTurn(state, 1);
+            displayGrid(state->players[1].attacked, "AI 2's View");
+            displayJudgeView(&state->players[0], &state->players[1]);
+            if (checkWinner(&state->players[1])) {
+                state->game_over = 1;
+                state->winner = 1;
+            } else {
+                state->current_turn = 0;
+            }
+        }
+        sleep(1);
+    }
+
+    printf("AI %d wins!\n", state->winner + 1);
 }
 
 int main() {
-    srand(getPreciseSeed()); // Seed the random number generator
+    srand(getPreciseSeed());
 
-    // Create shared memory for the game state
     int shm_id = shmget(IPC_PRIVATE, sizeof(SharedState), IPC_CREAT | 0666);
     SharedState *state = (SharedState *)shmat(shm_id, NULL, 0);
 
-    // Initialize players and game state
     for (int i = 0; i < PLAYER_COUNT; i++) {
         initializeGrid(state->players[i].grid, state->players[i].attacked);
-        placeShips(state->players[i].grid);
+        automaticPlacement(state->players[i].grid);
         state->players[i].hits = 0;
     }
+
+    state->current_turn = 0;
     state->game_over = 0;
-    state->winner = -1;
-    state->current_turn = 0; // Player 1 starts the game
 
-    // Game loop
-    pid_t pid = fork(); // Create a child process
+    gameLoop(state);
 
-    if (pid == 0) { // Child process (Player 2)
-        srand(getPreciseSeed());
-        while (!state->game_over) {
-            sleep(1); // Ensure Player 1 takes its turn first
-            if (state->current_turn == 1) { // Player 2's turn
-                printf("Player 2's turn\n");
-                takeTurn(&state->players[1], &state->players[0], 2); // Player 2 attacks Player 1
-                if (checkWinner(&state->players[1])) {
-                    state->game_over = 1;  // Game over
-                    state->winner = 1;     // Player 2 wins
-                    break;
-                }
-                state->current_turn = 0; // Switch turn to Player 1
-            }
-        }
-    } else { // Parent process (Player 1)
-        srand(getPreciseSeed());
-        while (!state->game_over) {
-            if (state->current_turn == 0) { // Player 1's turn
-                printf("Player 1's turn\n");
-                takeTurn(&state->players[0], &state->players[1], 1); // Player 1 attacks Player 2
-                if (checkWinner(&state->players[0])) {
-                    state->game_over = 1;  // Game over
-                    state->winner = 0;     // Player 1 wins
-                    break;
-                }
-                state->current_turn = 1; // Switch turn to Player 2
-            }
-            sleep(1); // Allow Player 2 to take its turn
-        }
-
-        // Wait for the child process (Player 2) to finish
-        wait(NULL);
-
-        // Announce the winner
-        if (state->winner == 0) {
-            printf("Player 1 wins!!\n");
-        } else if (state->winner == 1) {
-            printf("Player 2 wins!!\n");
-        }
-    }
-
-    // Cleanup
     shmdt(state);
     shmctl(shm_id, IPC_RMID, NULL);
 
     return 0;
 }
-
