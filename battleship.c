@@ -5,6 +5,7 @@
 #include <sys/wait.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
+#include <ncurses.h>
 
 #define GRID_SIZE 8
 #define SHIP_COUNT 5
@@ -32,6 +33,15 @@ unsigned int getPreciseSeed() {
     struct timeval tv;
     gettimeofday(&tv, NULL);
     return (unsigned int)(tv.tv_sec ^ (tv.tv_usec * 1000) ^ getpid());
+}
+
+void initializeNcurses() {
+    initscr();             
+    cbreak();              
+    noecho();              
+    keypad(stdscr, TRUE);  
+    curs_set(0);           
+    refresh();
 }
 
 void initializeGrid(int grid[GRID_SIZE][GRID_SIZE], int attacked[GRID_SIZE][GRID_SIZE]) {
@@ -77,48 +87,47 @@ void automaticPlacement(int grid[GRID_SIZE][GRID_SIZE]) {
     }
 }
 
-void displayGrid(int grid[GRID_SIZE][GRID_SIZE], const char *title) {
-    printf("\n%s:\n", title);
+void displayJudgeView(Player *p1, Player *p2, int player) {
+    mvprintw(0, 0, "Judge's View:");
+    mvprintw(1, 0, "        Player 1         |         Player 2");
+
     for (int i = 0; i < GRID_SIZE; i++) {
         for (int j = 0; j < GRID_SIZE; j++) {
-            if (grid[i][j] == -1) {
-                printf(" O ");  // Miss
-            } else if (grid[i][j] == 2) {
-                printf(" X ");  // Hit
-            } else {
-                printf(" . ");  // Unattacked
-            }
+            char p1_symbol = (p1->attacked[i][j] == 2) ? 'X' :
+                             (p1->attacked[i][j] == -1) ? 'O' :
+                             (p1->grid[i][j] == 1 ? 'S' : '.');
+            mvprintw(i + 2, j * 3, " %c ", p1_symbol);
         }
-        printf("\n");
+
+        mvprintw(i + 2, GRID_SIZE * 3, " | ");  
+
+        for (int j = 0; j < GRID_SIZE; j++) {
+            char p2_symbol = (p2->attacked[i][j] == 2) ? 'X' :
+                             (p2->attacked[i][j] == -1) ? 'O' :
+                             (p2->grid[i][j] == 1 ? 'S' : '.');
+            mvprintw(i + 2, GRID_SIZE * 3 + 3 + j * 3, " %c ", p2_symbol);
+        }
     }
+
+    if(player == 0)
+        displayGridNCurses(p1->attacked, "  AI 1's View", GRID_SIZE + 4, 0);
+    else if(player == 1)
+        displayGridNCurses(p2->attacked, "  AI 2's View", GRID_SIZE + 4, 0);
+
+    refresh(); 
 }
 
-void displayJudgeView(Player *p1, Player *p2) {
-    printf("\nJudge's View:\n");
-    printf("Player 1 | Player 2\n");
+void displayGridNCurses(int grid[GRID_SIZE][GRID_SIZE], const char *title, int startY, int startX) {
+    mvprintw(startY, startX, "%s:", title); 
+
     for (int i = 0; i < GRID_SIZE; i++) {
         for (int j = 0; j < GRID_SIZE; j++) {
-            if (p1->attacked[i][j] == 2) {
-                printf(" X ");  // Hit
-            } else if (p1->attacked[i][j] == -1) {
-                printf(" O ");  // Miss
-            } else {
-                printf(" %c ", p1->grid[i][j] == 1 ? 'S' : '.');  // Ship or Empty
-            }
+            char symbol = (grid[i][j] == -1) ? 'O' : 
+                          (grid[i][j] == 2) ? 'X' : '.';
+            mvprintw(startY + i + 1, startX + j * 2, " %c ", symbol);
         }
-        printf("   ");
-        for (int j = 0; j < GRID_SIZE; j++) {
-            if (p2->attacked[i][j] == 2) {
-                printf(" X ");  // Hit
-            } else if (p2->attacked[i][j] == -1) {
-                printf(" O ");  // Miss
-            } else {
-                printf(" %c ", p2->grid[i][j] == 1 ? 'S' : '.');  // Ship or Empty
-            }
-        }
-        printf("\n");
     }
-}
+}    
 
 int checkHit(Player *attacker, Player *defender, int row, int col) {
     if (defender->grid[row][col] == 1) {
@@ -149,13 +158,13 @@ void aiTurn(SharedState *state, int ai_id) { // AI Targeting is here.
 
             if (row >= 0 && row < GRID_SIZE && col >= 0 && col < GRID_SIZE &&
                 ai->attacked[row][col] == 0) {
-                printf("AI %d targets: (%d, %d)\n", ai_id + 1, row, col);
+                mvprintw(2 * GRID_SIZE + 6, 0, "AI %d targets: (%d, %d)\n", ai_id + 1, row, col);
                 if (checkHit(ai, opponent, row, col)) {
-                    printf("AI %d: Hit!\n", ai_id + 1);
+                    mvprintw(2 * GRID_SIZE + 7, 0, "AI %d Hit!\n", ai_id + 1);
                     state->ai_last_hit_row[ai_id] = row;
                     state->ai_last_hit_col[ai_id] = col;
                 } else {
-                    printf("AI %d: Miss.\n", ai_id + 1);
+                    mvprintw(2 * GRID_SIZE + 7, 0, "AI %d Miss.\n", ai_id + 1);
                 }
                 return;
             }
@@ -168,23 +177,27 @@ void aiTurn(SharedState *state, int ai_id) { // AI Targeting is here.
         col = rand() % GRID_SIZE;
     } while (ai->attacked[row][col] != 0);
 
-    printf("AI %d hunts: (%d, %d)\n", ai_id + 1, row, col);
+    mvprintw(2 * GRID_SIZE + 8, 0, "AI %d hunts: (%d, %d)\n", ai_id + 1, row, col);
     if (checkHit(ai, opponent, row, col)) {
-        printf("AI %d: Hit!\n", ai_id + 1);
+        mvprintw(2 * GRID_SIZE + 7, 0, "AI %d Hit!\n", ai_id + 1);
         state->ai_last_hit_row[ai_id] = row;
         state->ai_last_hit_col[ai_id] = col;
         state->ai_targeting[ai_id] = 1;
     } else {
-        printf("AI %d: Miss.\n", ai_id + 1);
+        mvprintw(2 * GRID_SIZE + 7, 0, "AI %d Miss.\n", ai_id + 1);
     }
 }
 
 void gameLoop(SharedState *state) { // Game Loop
     while (!state->game_over) {
+    	saveGameState(state);
+    
+        clear();
+
         if (state->current_turn == 0) {
             aiTurn(state, 0);
-            displayGrid(state->players[0].attacked, "AI 1's View");
-            displayJudgeView(&state->players[0], &state->players[1]);
+            displayJudgeView(&state->players[0], &state->players[1], 0);
+
             if (checkWinner(&state->players[0])) {
                 state->game_over = 1;
                 state->winner = 0;
@@ -193,8 +206,7 @@ void gameLoop(SharedState *state) { // Game Loop
             }
         } else {
             aiTurn(state, 1);
-            displayGrid(state->players[1].attacked, "AI 2's View");
-            displayJudgeView(&state->players[0], &state->players[1]);
+            displayJudgeView(&state->players[0], &state->players[1], 1);
             if (checkWinner(&state->players[1])) {
                 state->game_over = 1;
                 state->winner = 1;
@@ -205,28 +217,110 @@ void gameLoop(SharedState *state) { // Game Loop
         sleep(1);
     }
 
-    printf("AI %d wins!\n", state->winner + 1);
+    mvprintw(GRID_SIZE + 5, 0, "AI %d kazandı!\n", state->winner + 1);
+    sleep(1);
+    refresh();
+
+    sleep(5);
+    refresh();
 }
 
-int main() { // Need to add the menu.
-    srand(getPreciseSeed());
+void displayMenu(SharedState *state) {
+    int choice;
+    while (1) {
+        printw("\n--- Battleship Menu ---\n");
+        printw("1. Start New Game\n");
+        printw("2. Load Saved Game\n"); 
+        printw("3. Display Grids\n");
+        printw("4. Re-locate Ships\n");
+        printw("5. Exit\n");
+        printw("Enter your choice: ");
+        choice = getch();
 
-    int shm_id = shmget(IPC_PRIVATE, sizeof(SharedState), IPC_CREAT | 0666);
-    SharedState *state = (SharedState *)shmat(shm_id, NULL, 0);
+        switch (choice) {
+            case '1':
+                initializeGame(state);
+                gameLoop(state);
+                break;
+            case '2':
+                if (loadGameState(state)) { 
+                    gameLoop(state);
+                } else {
+                    initializeGame(state);
+                    gameLoop(state);
+                }
+                break;
+            case '3':
+                displayJudgeView(&state->players[0], &state->players[1], 2);
+                break;
+            case '4':
+                for (int i = 0; i < PLAYER_COUNT; i++) {
+                    initializeGrid(state->players[i].grid, state->players[i].attacked);
+                    automaticPlacement(state->players[i].grid);
+                }
+                break;
+            case '5':
+                exit(0);
+            default:
+                printw("Invalid choice. Please try again.\n");
+                break;
+        }
+    }
+}
+
+void initializeGame(SharedState *state) {
+    state->current_turn = 0;
+    state->game_over = 0;
+    state->winner = -1;
 
     for (int i = 0; i < PLAYER_COUNT; i++) {
         initializeGrid(state->players[i].grid, state->players[i].attacked);
         automaticPlacement(state->players[i].grid);
         state->players[i].hits = 0;
     }
+}
 
-    state->current_turn = 0;
-    state->game_over = 0;
+int main() {
+    srand(getPreciseSeed());
 
-    gameLoop(state);
+    // ncurses start
+    initscr();
+    cbreak();
+    noecho();
+    curs_set(FALSE);
+
+    int shm_id = shmget(IPC_PRIVATE, sizeof(SharedState), IPC_CREAT | 0666);
+    SharedState *state = (SharedState *)shmat(shm_id, NULL, 0);
+
+    displayMenu(state);
 
     shmdt(state);
     shmctl(shm_id, IPC_RMID, NULL);
 
+    // ncurses end
+    endwin();
     return 0;
 }
+
+void saveGameState(SharedState *state) {
+    FILE *file = fopen("battleship_save.dat", "wb");
+    if (file == NULL) {
+        perror("Failed to save game state");
+        return;
+    }
+    fwrite(state, sizeof(SharedState), 1, file);
+    fclose(file);
+    printf("Game state saved.\n");
+}
+
+int loadGameState(SharedState *state) {
+    FILE *file = fopen("battleship_save.dat", "rb");
+    if (file == NULL) {
+        printf("No saved game found. Starting new game.\n");
+        return 0;
+    }
+    fread(state, sizeof(SharedState), 1, file);
+    fclose(file);
+    return 1;
+}
+
