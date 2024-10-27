@@ -144,14 +144,15 @@ int checkHit(Player *attacker, Player *defender, int row, int col) {
 int checkWinner(Player *player) {
     return player->hits == 14;
 }
-
-void aiTurn(SharedState *state, int ai_id) { // AI Targeting is here.
+void aiTurn(SharedState *state, int ai_id) {
     Player *ai = &state->players[ai_id];
     Player *opponent = &state->players[1 - ai_id];
     int row, col;
 
+    int directions[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+    
     if (state->ai_targeting[ai_id]) {
-        int directions[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+        // AI is in targeting mode
         for (int i = 0; i < 4; i++) {
             row = state->ai_last_hit_row[ai_id] + directions[i][0];
             col = state->ai_last_hit_col[ai_id] + directions[i][1];
@@ -159,32 +160,48 @@ void aiTurn(SharedState *state, int ai_id) { // AI Targeting is here.
             if (row >= 0 && row < GRID_SIZE && col >= 0 && col < GRID_SIZE &&
                 ai->attacked[row][col] == 0) {
                 mvprintw(2 * GRID_SIZE + 6, 0, "AI %d targets: (%d, %d)\n", ai_id + 1, row, col);
+
                 if (checkHit(ai, opponent, row, col)) {
                     mvprintw(2 * GRID_SIZE + 7, 0, "AI %d Hit!\n", ai_id + 1);
                     state->ai_last_hit_row[ai_id] = row;
                     state->ai_last_hit_col[ai_id] = col;
+                    return;
                 } else {
                     mvprintw(2 * GRID_SIZE + 7, 0, "AI %d Miss.\n", ai_id + 1);
+                    state->ai_targeting[ai_id] = 0;
+                    break;
                 }
-                return;
             }
         }
-        state->ai_targeting[ai_id] = 0;
     }
 
-    do {
-        row = rand() % GRID_SIZE;
-        col = rand() % GRID_SIZE;
-    } while (ai->attacked[row][col] != 0);
+    int foundUnattacked = 0;
+    for (int i = 0; i < GRID_SIZE && !foundUnattacked; i++) {
+        for (int j = (i % 2); j < GRID_SIZE; j += 2) {
+            if (ai->attacked[i][j] == 0) {
+                row = i;
+                col = j;
+                foundUnattacked = 1;
+                break;
+            }
+        }
+    }
+    if (!foundUnattacked) {
+        do {
+            row = rand() % GRID_SIZE;
+            col = rand() % GRID_SIZE;
+        } while (ai->attacked[row][col] != 0);
+    }
 
     mvprintw(2 * GRID_SIZE + 8, 0, "AI %d hunts: (%d, %d)\n", ai_id + 1, row, col);
+    
     if (checkHit(ai, opponent, row, col)) {
-        mvprintw(2 * GRID_SIZE + 7, 0, "AI %d Hit!\n", ai_id + 1);
+        mvprintw(2 * GRID_SIZE + 7, 0, "AI %d Hits!\n", ai_id + 1);
         state->ai_last_hit_row[ai_id] = row;
         state->ai_last_hit_col[ai_id] = col;
         state->ai_targeting[ai_id] = 1;
     } else {
-        mvprintw(2 * GRID_SIZE + 7, 0, "AI %d Miss.\n", ai_id + 1);
+        mvprintw(2 * GRID_SIZE + 7, 0, "AI %d Misses.\n", ai_id + 1);
     }
 }
 
@@ -217,7 +234,7 @@ void gameLoop(SharedState *state) { // Game Loop
         sleep(1);
     }
 
-    mvprintw(GRID_SIZE + 5, 0, "AI %d kazandı!\n", state->winner + 1);
+    mvprintw(GRID_SIZE + 5, 0, "AI %d won!\n", state->winner + 1);
     sleep(1);
     refresh();
 
@@ -228,13 +245,15 @@ void gameLoop(SharedState *state) { // Game Loop
 void displayMenu(SharedState *state) {
     int choice;
     while (1) {
-        printw("\n--- Battleship Menu ---\n");
-        printw("1. Start New Game\n");
-        printw("2. Load Saved Game\n"); 
-        printw("3. Display Grids\n");
-        printw("4. Re-locate Ships\n");
-        printw("5. Exit\n");
-        printw("Enter your choice: ");
+        clear();
+        mvprintw(0, 0, "--- Battleship Menu ---");
+        mvprintw(1, 0, "1. Start New Game");
+        mvprintw(2, 0, "2. Load Saved Game");
+        mvprintw(3, 0, "3. Display Grids");
+        mvprintw(4, 0, "4. Re-locate Ships");
+        mvprintw(5, 0, "5. Exit");
+        mvprintw(7, 0, "Enter your choice: ");
+        refresh();
         choice = getch();
 
         switch (choice) {
@@ -243,26 +262,39 @@ void displayMenu(SharedState *state) {
                 gameLoop(state);
                 break;
             case '2':
-                if (loadGameState(state)) { 
+                if (loadGameState(state)) {
                     gameLoop(state);
                 } else {
+                    mvprintw(9, 0, "No saved game found. Starting new game.");
+                    refresh();
+                    sleep(2);
                     initializeGame(state);
                     gameLoop(state);
                 }
                 break;
             case '3':
-                displayJudgeView(&state->players[0], &state->players[1], 2);
+                clear();
+                displayJudgeView(&state->players[0], &state->players[1]);
+                mvprintw(GRID_SIZE + 5, 0, "Press any key to return to menu...");
+                refresh();
+                getch();
                 break;
             case '4':
                 for (int i = 0; i < PLAYER_COUNT; i++) {
                     initializeGrid(state->players[i].grid, state->players[i].attacked);
                     automaticPlacement(state->players[i].grid);
                 }
+                mvprintw(9, 0, "Ships re-located.");
+                refresh();
+                sleep(2);
                 break;
             case '5':
+                endwin();
                 exit(0);
             default:
-                printw("Invalid choice. Please try again.\n");
+                mvprintw(9, 0, "Invalid choice. Please try again.");
+                refresh();
+                sleep(1);
                 break;
         }
     }
@@ -277,6 +309,7 @@ void initializeGame(SharedState *state) {
         initializeGrid(state->players[i].grid, state->players[i].attacked);
         automaticPlacement(state->players[i].grid);
         state->players[i].hits = 0;
+        state->ai_targeting[i] = 0;
     }
 }
 
@@ -323,4 +356,3 @@ int loadGameState(SharedState *state) {
     fclose(file);
     return 1;
 }
-
