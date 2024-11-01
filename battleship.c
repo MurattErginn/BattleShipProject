@@ -10,6 +10,18 @@
 #define GRID_SIZE 8
 #define SHIP_COUNT 5
 #define PLAYER_COUNT 2
+#define HEADER_SIZE 11
+#define LEFT_PADDING 18  
+
+void init_colors() //arayüz için renk tanımları
+{
+    start_color();
+    init_pair(1, COLOR_GREEN, COLOR_BLUE);//sağ gemiler için
+    init_pair(2, COLOR_RED, COLOR_BLUE); //vurulmuş gemiler için
+    init_pair(3, COLOR_YELLOW, COLOR_BLACK); //başlıklar için
+    init_pair(4, COLOR_CYAN, COLOR_BLUE); //bilinmeyen veya boş yerler için
+    init_pair(5, COLOR_MAGENTA, COLOR_BLACK); //menü için
+}
 
 int ship_sizes[SHIP_COUNT] = {4, 3, 3, 2, 2};
 
@@ -110,48 +122,84 @@ void automaticPlacement(int grid[GRID_SIZE][GRID_SIZE]) {
 }
 
 void displayJudgeView(Player *p1, Player *p2, int player) {
-    mvprintw(0, 0, "                   Judge's View:");
-    mvprintw(1, 0, "        Player 1         |         Player 2");
+    print_header();
+    attron(COLOR_PAIR(3)); //rengi etkinleştir
+    mvprintw(HEADER_SIZE, LEFT_PADDING, "                   Judge's View:");
+    mvprintw(HEADER_SIZE + 1, LEFT_PADDING, "        Player 1         |         Player 2");
+    attroff(COLOR_PAIR(3)); //rengi devre dışı bırak
 
     for (int i = 0; i < GRID_SIZE; i++) {
         for (int j = 0; j < GRID_SIZE; j++) {
             char p1_symbol = (p2->attacked[i][j] == 2) ? 'X' :
-                             (p2->attacked[i][j] == -1) ? '.' :
-                             (p1->grid[i][j] == 1 ? 'S' : '.');
-            mvprintw(i + 2, j * 3, " %c ", p1_symbol);
+                             (p2->attacked[i][j] == -1) ? '~' :
+                             (p1->grid[i][j] == 1 ? '@' : '~');
+            
+
+            //durumuna göre renk seçimi
+            int color = (p2->attacked[i][j] == 2) ? 2 :
+                        (p1->grid[i][j] == 1 ) ? 1:4;
+
+            attron(COLOR_PAIR(color)); //rengi etkinleştir
+            mvprintw(i + 2 + HEADER_SIZE, (j * 3)+ LEFT_PADDING, " %c ", p1_symbol);
+            attroff(COLOR_PAIR(color)); //rengi devre dışı bırak
         }
 
-        mvprintw(i + 2, GRID_SIZE * 3, " | ");  
+        attron(COLOR_PAIR(3)); //rengi etkinleştir
+        mvprintw(i + 2 + HEADER_SIZE, (GRID_SIZE * 3)+ LEFT_PADDING, " | ");
+        attroff(COLOR_PAIR(3));  //rengi devre dışı bırak
 
         for (int j = 0; j < GRID_SIZE; j++) {
             char p2_symbol = (p1->attacked[i][j] == 2) ? 'X' :
-                             (p1->attacked[i][j] == -1) ? '.' :
-                             (p2->grid[i][j] == 1 ? 'S' : '.');
-            mvprintw(i + 2, GRID_SIZE * 3 + 3 + j * 3, " %c ", p2_symbol);
+                             (p1->attacked[i][j] == -1) ? '~' :
+                             (p2->grid[i][j] == 1 ? '@' : '~');
+
+            //durumuna göre renk seçimi
+            int color = (p1->attacked[i][j] == 2) ? 2 :
+                        (p2->grid[i][j] == 1 ) ? 1:4;
+
+            attron(COLOR_PAIR(color)); //rengi etkinleştir
+            mvprintw(i + 2 + HEADER_SIZE, (GRID_SIZE * 3 + 3 + j * 3)+ LEFT_PADDING, " %c ", p2_symbol);
+            attroff(COLOR_PAIR(color)); //rengi devre dışı bırak
         }
     }
 
-    displayGridNCurses(p1->attacked, p2->attacked, GRID_SIZE + 4);
+    displayGridNCurses(p1->attacked, p2->attacked, GRID_SIZE + 4 + HEADER_SIZE);
 
     refresh(); 
 }
 
 void displayGridNCurses(Player *p1, Player *p2, int startY) {
-    mvprintw(startY, 0, "       AI 1's View       |       AI 2's View");
+    attron(COLOR_PAIR(3)); //rengi etkinleştir
+    mvprintw(startY, LEFT_PADDING, "       AI 1's View       |       AI 2's View");
+    attroff(COLOR_PAIR(3)); //rengi devre dışı bırak
 
     for (int i = 0; i < GRID_SIZE; i++) {
         for (int j = 0; j < GRID_SIZE; j++) {
             char p1_symbol = (p1->grid[i][j] == -1) ? 'O' : 
-                             (p1->grid[i][j] == 2) ? 'X' : '.';
-            mvprintw(startY + i + 1, j * 3, " %c ", p1_symbol);
+                             (p1->grid[i][j] == 2) ? 'X' : '~';
+
+            //durumuna göre renk seçimi
+            int color = (p1->grid[i][j] == 2 ) ? 2:4;
+
+            attron(COLOR_PAIR(color)); //rengi etkinleştir
+            mvprintw(startY + i + 1, (j * 3)+ LEFT_PADDING, " %c ", p1_symbol);
+            attroff(COLOR_PAIR(color)); //rengi devre dışı bırak
         }
 
-        mvprintw(startY + i + 1, GRID_SIZE * 3, " | ");  
+        attron(COLOR_PAIR(3)); //rengi etkinleştir
+        mvprintw(startY + i + 1, (GRID_SIZE * 3) + LEFT_PADDING, " | ");  
+        attroff(COLOR_PAIR(3)); //rengi devre dışı bırak
 
         for (int j = 0; j < GRID_SIZE; j++) {
             char p2_symbol = (p2->grid[i][j] == -1) ? 'O' : 
-                             (p2->grid[i][j] == 2) ? 'X' : '.';
-            mvprintw(startY + i + 1, GRID_SIZE * 3 + 3 + j * 3, " %c ", p2_symbol);
+                             (p2->grid[i][j] == 2) ? 'X' : '~';
+
+            //durumuna göre renk seçimi
+            int color = (p2->grid[i][j] == 2 ) ? 2:4;
+
+            attron(COLOR_PAIR(color)); //rengi etkinleştir
+            mvprintw(startY + i + 1, (GRID_SIZE * 3 + 3 + j * 3)+LEFT_PADDING, " %c ", p2_symbol);
+            attroff(COLOR_PAIR(color)); //rengi devre dışı bırak
         }
     }
 }    
@@ -273,26 +321,32 @@ void gameLoop(SharedState *state) { // Game Loop
         }
         sleep(1);
     }
-
-    mvprintw(GRID_SIZE + 3, 0, "                 AI %d wins!\n", state->winner + 1);
+    attron(COLOR_PAIR(3));
+    mvprintw(GRID_SIZE + 3, LEFT_PADDING, "                     AI %d wins!\n", state->winner + 1);
+    attroff(COLOR_PAIR(3));
     sleep(1);
     refresh();
 
     sleep(5);
     clear();
     refresh();
+    print_header();
 }
 
 void displayMenu(SharedState *state) {
     int choice;
+    print_header();
     while (1) {
-        printw("\n--- Battleship Menu ---\n");
-        printw("1. Start New Game\n");
-        printw("2. Load Saved Game\n"); 
-        printw("3. Display Grids\n");
-        printw("4. Re-locate Ships\n");
-        printw("5. Exit\n");
-        printw("Enter your choice: ");
+        // printw("\n--- Battleship Menu ---\n");
+        attron(COLOR_PAIR(5)); //rengi etkinleştir
+        printw("\n");
+        printw("%*s%s",LEFT_PADDING+GRID_SIZE*2,"","1. Start New Game\n");
+        printw("%*s%s",LEFT_PADDING+GRID_SIZE*2,"","2. Load Saved Game\n"); 
+        printw("%*s%s",LEFT_PADDING+GRID_SIZE*2,"","3. Display Grids\n");
+        printw("%*s%s",LEFT_PADDING+GRID_SIZE*2,"","4. Re-locate Ships\n");
+        printw("%*s%s",LEFT_PADDING+GRID_SIZE*2,"","5. Exit\n");
+        printw("%*s%s",LEFT_PADDING+GRID_SIZE*2,"","Enter your choice: ");
+        attroff(COLOR_PAIR(5)); //rengi devre dışı bırak
         choice = getch();
 
         switch (choice) {
@@ -309,13 +363,17 @@ void displayMenu(SharedState *state) {
                 }
                 break;
             case '3':
+                clear();
                 displayJudgeView(&state->players[0], &state->players[1], 2);
                 break;
             case '4':
+                clear();
+                print_header();
                 for (int i = 0; i < PLAYER_COUNT; i++) {
                     initializeGrid(state->players[i].grid, state->players[i].attacked);
                     automaticPlacement(state->players[i].grid);
                 }
+                
                 break;
             case '5':
                 exit(0);
@@ -338,18 +396,35 @@ void initializeGame(SharedState *state) {
     }
 }
 
+void print_header() {
+
+    attron(COLOR_PAIR(3)); //rengi etkinleştir
+    mvprintw(0, 0, "  /$$                   /$$       /$$     /$$                     /$$       /$$          ");
+    mvprintw(1, 0, " | $$                  | $$      | $$    | $$                    | $$      |__/          ");
+    mvprintw(2, 0, " | $$$$$$$   /$$$$$$  /$$$$$$   /$$$$$$  | $$  /$$$$$$   /$$$$$$$| $$$$$$$  /$$  /$$$$$$ ");
+    mvprintw(3, 0, " | $$__  $$ |____  $$|_  $$_/  |_  $$_/  | $$ /$$__  $$ /$$_____/| $$__  $$| $$ /$$__  $$");
+    mvprintw(4, 0, " | $$  \\ $$  /$$$$$$$  | $$      | $$    | $$| $$$$$$$$|  $$$$$$ | $$  \\ $$| $$| $$  \\ $$");
+    mvprintw(5, 0, " | $$  | $$ /$$__  $$  | $$ /$$  | $$ /$$| $$| $$_____/ \\____  $$| $$  | $$| $$| $$  | $$");
+    mvprintw(6, 0, " | $$$$$$$/|  $$$$$$$  |  $$$$/  |  $$$$/| $$|  $$$$$$$ /$$$$$$$/| $$  | $$| $$| $$$$$$$/");
+    mvprintw(7, 0, " |_______/  \\_______/   \\___/     \\___/  |__/ \\_______/|_______/ |__/  |__/|__/| $$____/ ");
+    mvprintw(8, 0, "                                                                               | $$");
+    mvprintw(9, 0, "                                                                               | $$");
+    mvprintw(10, 0, "                                                                               |__/      ");
+    attroff(COLOR_PAIR(3)); //rengi etkinleştir
+}
+
 int main() {
     srand(getPreciseSeed());
-
     // ncurses start
     initscr();
+    init_colors();
     cbreak();
     noecho();
     curs_set(FALSE);
 
     int shm_id = shmget(IPC_PRIVATE, sizeof(SharedState), IPC_CREAT | 0666);
     SharedState *state = (SharedState *)shmat(shm_id, NULL, 0);
-
+    
     displayMenu(state);
 
     shmdt(state);
